@@ -2,14 +2,7 @@
 
 import { useEffect, useReducer, useRef, useState } from "react";
 import type { User } from "@/lib/api";
-import {
-  chatReducer,
-  clearHistory,
-  loadHistory,
-  newMessageId,
-  saveHistory,
-  type Message,
-} from "@/lib/chat-state";
+import { chatReducer, newMessageId, type Message } from "@/lib/chat-state";
 import { clearToken } from "@/lib/session";
 import { useChatSocket, type ServerEvent } from "@/lib/use-chat-socket";
 import { usePageFocused } from "@/lib/use-page-focused";
@@ -19,14 +12,13 @@ import Thread from "./Thread";
 type Pending = { peerId: number; key: string };
 
 export default function ChatApp({ user, token }: { user: User; token: string }) {
-  const [conversations, dispatch] = useReducer(chatReducer, user.id, loadHistory);
+  // Lives only in this state, so a reload or logout loses it. Nothing is written to the browser.
+  const [conversations, dispatch] = useReducer(chatReducer, {});
   const [activePeerId, setActivePeerId] = useState<number | null>(null);
 
   // Messages waiting for a reply. "sent" names its message, but "error" doesn't. The server
   // handles a connection's frames in order, so an error belongs to the oldest one still here.
   const pending = useRef<Pending[]>([]);
-
-  useEffect(() => saveHistory(user.id, conversations), [user.id, conversations]);
 
   function handleEvent(event: ServerEvent) {
     switch (event.type) {
@@ -128,12 +120,6 @@ export default function ChatApp({ user, token }: { user: User; token: string }) 
     setActivePeerId(peerId);
   }
 
-  function logOut() {
-    // Messages exist only in this browser, so don't leave them for the next person
-    clearHistory(user.id);
-    clearToken();
-  }
-
   return (
     <div className="flex h-dvh overflow-hidden">
       <div className={`${active ? "hidden md:flex" : "flex"} w-full shrink-0 md:w-80`}>
@@ -146,7 +132,7 @@ export default function ChatApp({ user, token }: { user: User; token: string }) 
           onOpen={openConversation}
           onConnect={connect}
           onDisconnect={disconnect}
-          onLogOut={logOut}
+          onLogOut={clearToken}
         />
       </div>
       <main className={`${active ? "flex" : "hidden md:flex"} min-w-0 flex-1 flex-col`}>

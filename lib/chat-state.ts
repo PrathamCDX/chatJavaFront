@@ -93,40 +93,12 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
   }
 }
 
-// The backend keeps no history, so this browser's copy is the only one
-const historyKey = (userId: number) => `chat.history.${userId}`;
-
-export function loadHistory(userId: number): ChatState {
-  let state: ChatState;
-  try {
-    state = JSON.parse(localStorage.getItem(historyKey(userId)) ?? "{}");
-  } catch {
-    return {};
+/**
+ * Deletes every user's message history from this browser. Messages aren't saved any more,
+ * but earlier versions left them in localStorage in plain text.
+ */
+export function deleteMessageHistory() {
+  for (const key of Object.keys(localStorage)) {
+    if (key.startsWith("chat.history.")) localStorage.removeItem(key);
   }
-  // A message still "sending" when the page closed will never get its ack
-  for (const conversation of Object.values(state)) {
-    // History saved before the limit existed can be longer
-    conversation.messages = conversation.messages.slice(-MAX_MESSAGES_PER_CONVERSATION);
-    for (const message of conversation.messages) {
-      // Saved before ids became UUIDs; "Send again" needs one the server accepts
-      if (message.key.startsWith("local-")) message.key = newMessageId();
-      if (message.status === "sending") {
-        message.status = "failed";
-        message.error = "Connection lost";
-      }
-    }
-  }
-  return state;
-}
-
-export function saveHistory(userId: number, state: ChatState) {
-  try {
-    localStorage.setItem(historyKey(userId), JSON.stringify(state));
-  } catch {
-    // Storage full or blocked: the chat still works, it just won't survive a reload
-  }
-}
-
-export function clearHistory(userId: number) {
-  localStorage.removeItem(historyKey(userId));
 }

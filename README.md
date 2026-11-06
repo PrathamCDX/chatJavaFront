@@ -53,4 +53,4 @@ Receipts are best effort: the backend drops one if the sender is offline at that
 - People are addressed by numeric user ID, because listing users is admin-only.
 - Other people show as "User 14", because no endpoint returns another user's name.
 - Messages aren't stored. A message sent to someone offline or disconnected is lost, and the UI marks it "Not delivered".
-- History lives only in this browser's `localStorage`, and logging out deletes it. Each conversation keeps its newest 100 messages, and the oldest are dropped first.
+- Messages live only in React state, so reloading the page or logging out loses them. Each conversation keeps its newest 100 messages, and the oldest are dropped first.
