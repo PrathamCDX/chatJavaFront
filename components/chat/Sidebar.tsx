@@ -16,6 +16,7 @@ const STATUS_LABEL: Record<SocketStatus, string> = {
 type Props = {
   user: User;
   status: SocketStatus;
+  problem: string | null;
   conversations: Conversation[];
   activePeerId: number | null;
   onOpen: (peerId: number) => void;
@@ -27,6 +28,7 @@ type Props = {
 export default function Sidebar({
   user,
   status,
+  problem,
   conversations,
   activePeerId,
   onOpen,
@@ -58,6 +60,11 @@ export default function Sidebar({
           </span>
           <span className="rounded-md bg-subtle px-2 py-1 font-mono">Your ID: {user.id}</span>
         </div>
+        {status === "disconnected" && problem && (
+          <p role="alert" className="mt-3 text-xs text-danger">
+            {problem}. Close a tab you aren&apos;t using, or connect here to close your oldest connection.
+          </p>
+        )}
         {status === "disconnected" ? (
           <button
             type="button"

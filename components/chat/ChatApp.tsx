@@ -112,6 +112,7 @@ export default function ChatApp({ user, token }: { user: User; token: string }) 
         <Sidebar
           user={user}
           status={status}
+          problem={problem}
           conversations={Object.values(conversations)}
           activePeerId={activePeerId}
           onOpen={openConversation}
