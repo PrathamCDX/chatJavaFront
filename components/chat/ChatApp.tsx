@@ -2,22 +2,28 @@
 
 import { useEffect, useReducer, useRef, useState } from "react";
 import type { User } from "@/lib/api";
-import { chatReducer, clearHistory, loadHistory, saveHistory, type Message } from "@/lib/chat-state";
+import {
+  chatReducer,
+  clearHistory,
+  loadHistory,
+  newMessageId,
+  saveHistory,
+  type Message,
+} from "@/lib/chat-state";
 import { clearToken } from "@/lib/session";
 import { useChatSocket, type ServerEvent } from "@/lib/use-chat-socket";
+import { usePageFocused } from "@/lib/use-page-focused";
 import Sidebar from "./Sidebar";
 import Thread from "./Thread";
 
 type Pending = { peerId: number; key: string };
 
-let nextKey = 0;
-
 export default function ChatApp({ user, token }: { user: User; token: string }) {
   const [conversations, dispatch] = useReducer(chatReducer, user.id, loadHistory);
   const [activePeerId, setActivePeerId] = useState<number | null>(null);
 
-  // Acks carry no reference to the frame they answer, but the server handles a
-  // connection's frames in order, so each "sent"/"error" belongs to the oldest pending send.
+  // Messages waiting for a reply. "sent" names its message, but "error" doesn't. The server
+  // handles a connection's frames in order, so an error belongs to the oldest one still here.
   const pending = useRef<Pending[]>([]);
 
   useEffect(() => saveHistory(user.id, conversations), [user.id, conversations]);
@@ -32,17 +38,18 @@ export default function ChatApp({ user, token }: { user: User; token: string }) 
           message: { key: event.id, mine: false, text: event.text, url: event.url, sentAt: event.sentAt },
         });
         break;
-      case "sent": {
-        const sent = pending.current.shift();
-        if (sent) {
-          dispatch({
-            type: "update",
-            ...sent,
-            patch: { status: event.delivered ? "delivered" : "undelivered", sentAt: event.sentAt },
-          });
-        }
+      case "sent":
+        pending.current = pending.current.filter(({ key }) => key !== event.id);
+        dispatch({
+          type: "update",
+          peerId: event.receiverId,
+          key: event.id,
+          patch: { status: event.delivered ? "delivered" : "undelivered", sentAt: event.sentAt },
+        });
         break;
-      }
+      case "readReceipt":
+        dispatch({ type: "read", peerId: event.readerId, key: event.messageId, readAt: event.readAt });
+        break;
       case "error": {
         const failed = pending.current.shift();
         if (failed) {
@@ -68,14 +75,22 @@ export default function ChatApp({ user, token }: { user: User; token: string }) 
 
   function transmit(peerId: number, key: string, text: string | null, url: string | null) {
     pending.current.push({ peerId, key });
-    if (!send({ receiverId: peerId, text, url })) {
+    const frame = {
+      type: "message",
+      id: key,
+      timestamp: new Date().toISOString(),
+      receiverId: peerId,
+      text,
+      url,
+    } as const;
+    if (!send(frame)) {
       pending.current.pop();
       dispatch({ type: "update", peerId, key, patch: { status: "failed", error: "Not connected" } });
     }
   }
 
   function handleSend(peerId: number, text: string | null, url: string | null) {
-    const key = `local-${Date.now()}-${nextKey++}`;
+    const key = newMessageId();
     const message: Message = {
       key,
       mine: true,
@@ -93,6 +108,21 @@ export default function ChatApp({ user, token }: { user: User; token: string }) 
     transmit(peerId, message.key, message.text, message.url);
   }
 
+  const active = activePeerId !== null ? conversations[activePeerId] : undefined;
+  const focused = usePageFocused();
+
+  // A message counts as read once its thread is open in a focused tab. Anything that
+  // arrived earlier, or while disconnected, gets its receipt as soon as that's true.
+  useEffect(() => {
+    if (!active || !focused || status !== "online") return;
+    for (const { key, mine, readReceiptSent } of active.messages) {
+      if (mine || readReceiptSent) continue;
+      if (send({ type: "readReceipt", messageId: key, receiverId: active.peerId })) {
+        dispatch({ type: "update", peerId: active.peerId, key, patch: { readReceiptSent: true } });
+      }
+    }
+  }, [active, focused, status, send]);
+
   function openConversation(peerId: number) {
     dispatch({ type: "open", peerId });
     setActivePeerId(peerId);
@@ -103,8 +133,6 @@ export default function ChatApp({ user, token }: { user: User; token: string }) 
     clearHistory(user.id);
     clearToken();
   }
-
-  const active = activePeerId !== null ? conversations[activePeerId] : undefined;
 
   return (
     <div className="flex h-dvh overflow-hidden">

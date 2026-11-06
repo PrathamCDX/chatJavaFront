@@ -11,12 +11,26 @@ const TOO_MANY_CONNECTIONS = 4001;
 
 export type ServerEvent =
   | { type: "connected"; userId: number }
-  | { type: "message"; id: string; senderId: number; text: string | null; url: string | null; sentAt: string }
+  // id and timestamp come from the sender's client, so only sentAt can be trusted
+  | {
+      type: "message";
+      id: string;
+      senderId: number;
+      text: string | null;
+      url: string | null;
+      timestamp: string;
+      sentAt: string;
+    }
   | { type: "sent"; id: string; receiverId: number; delivered: boolean; sentAt: string }
+  // The server can't check messageId, so only readerId and readAt can be trusted
+  | { type: "readReceipt"; messageId: string; readerId: number; readAt: string }
   | { type: "pong"; serverTime: string }
   | { type: "error"; message: string };
 
-export type OutgoingMessage = { receiverId: number; text: string | null; url: string | null };
+export type ClientFrame =
+  | { type: "message"; id: string; timestamp: string; receiverId: number; text: string | null; url: string | null }
+  /** receiverId is the user who sent the message being marked read. */
+  | { type: "readReceipt"; messageId: string; receiverId: number };
 
 export type SocketStatus = "disconnected" | "connecting" | "online" | "offline";
 
@@ -124,10 +138,10 @@ export function useChatSocket(token: string, handlers: Handlers) {
   }
 
   /** Returns false if there's no open connection to send on. */
-  const send = useCallback((message: OutgoingMessage) => {
+  const send = useCallback((frame: ClientFrame) => {
     const ws = socket.current;
     if (ws?.readyState !== WebSocket.OPEN) return false;
-    ws.send(JSON.stringify({ type: "message", ...message }));
+    ws.send(JSON.stringify(frame));
     return true;
   }, []);
 

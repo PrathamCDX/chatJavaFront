@@ -22,10 +22,12 @@ type Props = {
 export default function Thread({ conversation, status, problem, onSend, onResend, onConnect, onBack }: Props) {
   const { peerId, messages } = conversation;
   const bottom = useRef<HTMLDivElement>(null);
+  // Not messages.length: that stops changing once the conversation is full
+  const newestKey = messages.at(-1)?.key;
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "end" });
-  }, [messages.length]);
+  }, [newestKey]);
 
   return (
     <>
@@ -88,10 +90,16 @@ function Bubble({
   onResend: () => void;
   canResend: boolean;
 }) {
-  const { mine, text, url, sentAt, status, error } = message;
+  const { mine, text, url, sentAt, status, error, readAt } = message;
   const time = new Date(sentAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  const notice =
-    status === "undelivered" ? "Not delivered: they're offline" : status === "failed" ? error : null;
+  // A read message clearly arrived, even if its ack was lost or hasn't come in yet
+  const notice = readAt
+    ? null
+    : status === "undelivered"
+      ? "Not delivered: they're offline"
+      : status === "failed"
+        ? error
+        : null;
 
   return (
     <div className={`flex flex-col ${mine ? "items-end" : "items-start"}`}>
@@ -114,8 +122,9 @@ function Bubble({
       </div>
       <p className="mt-0.5 flex gap-1.5 px-1 text-[11px] text-muted">
         <span>{time}</span>
-        {mine && status === "sending" && <span>Sending…</span>}
-        {mine && status === "delivered" && <span>Delivered</span>}
+        {mine && readAt && <span>Read</span>}
+        {mine && !readAt && status === "sending" && <span>Sending…</span>}
+        {mine && !readAt && status === "delivered" && <span>Delivered</span>}
         {notice && <span className="text-danger">{notice}</span>}
         {notice && canResend && (
           <button type="button" onClick={onResend} className="font-medium underline hover:text-foreground">
