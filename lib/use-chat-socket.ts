@@ -5,6 +5,9 @@ import { api, ApiError } from "./api";
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL;
 const MAX_RETRY_DELAY_MS = 30_000;
+// The user went over their connection limit and this was their oldest connection.
+// Reconnecting would only push out their next oldest, so tabs would keep kicking each other off.
+const TOO_MANY_CONNECTIONS = 4001;
 
 export type ServerEvent =
   | { type: "connected"; userId: number }
@@ -26,7 +29,7 @@ type Handlers = {
 /**
  * Connection to /ws/chat. It stays closed until connect() is called; from then until
  * disconnect() it's kept open, reconnecting with backoff. Tickets are single-use, so each
- * attempt gets a new one.
+ * attempt gets a new one. A 4001 close ends this like disconnect() does, leaving `problem` set.
  */
 export function useChatSocket(token: string, handlers: Handlers) {
   const [enabled, setEnabled] = useState(false);
@@ -82,11 +85,17 @@ export function useChatSocket(token: string, handlers: Handlers) {
         }
         onEvent(event);
       };
-      ws.onclose = ({ reason }) => {
+      ws.onclose = ({ code, reason }) => {
         if (socket.current === ws) socket.current = null;
         if (stopped) return;
-        setProblem(reason || "Connection lost");
         onDisconnect();
+        if (code === TOO_MANY_CONNECTIONS) {
+          setProblem("You have too many connections open, so this one was closed");
+          setStatus("disconnected");
+          setEnabled(false);
+          return;
+        }
+        setProblem(reason || "Connection lost");
         retry();
       };
     }
@@ -101,6 +110,7 @@ export function useChatSocket(token: string, handlers: Handlers) {
   }, [token, enabled]);
 
   const connect = useCallback(() => {
+    setProblem(null);
     setStatus("connecting");
     setEnabled(true);
   }, []);

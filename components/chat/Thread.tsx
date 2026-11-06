@@ -44,7 +44,7 @@ export default function Thread({ conversation, status, problem, onSend, onResend
 
       {status === "disconnected" && (
         <p role="status" className="bg-subtle px-4 py-2 text-center text-xs text-muted">
-          You can&apos;t send or receive messages while disconnected.{" "}
+          {problem ? `${problem}.` : "You can't send or receive messages while disconnected."}{" "}
           <button type="button" onClick={onConnect} className="font-medium text-foreground underline">
             Connect
           </button>

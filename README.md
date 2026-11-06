@@ -35,6 +35,8 @@ Both settings live in `.env`, and the app won't start without them. `.env` is gi
 - **WebSocket** connects straight to `NEXT_PUBLIC_WS_URL`, using a one-time ticket from `POST /ws/ticket`.
   Tickets last 30 seconds and work once, so every reconnect fetches a new one.
   The socket stays closed until the user presses Connect, including after a page reload.
+  It reconnects by itself after a dropped connection, except when the backend closes it with code 4001
+  (too many connections), since that would only close the user's next oldest connection.
 
 ## Changing where the token is stored
 
