@@ -141,6 +141,7 @@ function Composer({
   const [text, setText] = useState("");
   const [url, setUrl] = useState("");
   const [showUrl, setShowUrl] = useState(false);
+  const textarea = useRef<HTMLTextAreaElement>(null);
 
   const trimmedUrl = url.trim();
   const urlInvalid = trimmedUrl !== "" && !isHttpUrl(trimmedUrl);
@@ -152,6 +153,8 @@ function Composer({
     setText("");
     setUrl("");
     setShowUrl(false);
+    // On a phone, losing focus closes the keyboard between messages
+    textarea.current?.focus();
   }
 
   function handleSubmit(event: FormEvent) {
@@ -193,6 +196,7 @@ function Composer({
           Link
         </button>
         <textarea
+          ref={textarea}
           aria-label="Message"
           rows={1}
           placeholder="Message"
@@ -205,6 +209,7 @@ function Composer({
         <button
           type="submit"
           disabled={!canSend}
+          onMouseDown={(event) => event.preventDefault()}
           className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition-colors hover:bg-accent-hover disabled:opacity-50"
         >
           Send
