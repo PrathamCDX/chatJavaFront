@@ -173,7 +173,7 @@ function NewChatForm({ selfId, onOpen }: { selfId: number; onOpen: (peerId: numb
           placeholder="User ID"
           value={value}
           onChange={(event) => setValue(event.target.value.trim())}
-          className="min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted"
+          className="min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-base placeholder:text-muted md:text-sm"
         />
         <button
           type="submit"

@@ -5,6 +5,7 @@ import type { User } from "@/lib/api";
 import { chatReducer, newMessageId, type Message } from "@/lib/chat-state";
 import { clearToken } from "@/lib/session";
 import { useChatSocket, type ServerEvent } from "@/lib/use-chat-socket";
+import { useFitVisualViewport } from "@/lib/use-fit-visual-viewport";
 import { usePageFocused } from "@/lib/use-page-focused";
 import Sidebar from "./Sidebar";
 import Thread from "./Thread";
@@ -100,6 +101,8 @@ export default function ChatApp({ user, token }: { user: User; token: string }) 
 
   const active = activePeerId !== null ? conversations[activePeerId] : undefined;
   const focused = usePageFocused();
+  const shell = useRef<HTMLDivElement>(null);
+  useFitVisualViewport(shell);
 
   // A message counts as read once its thread is open in a focused tab. Anything that
   // arrived earlier, or while disconnected, gets its receipt as soon as that's true.
@@ -119,7 +122,7 @@ export default function ChatApp({ user, token }: { user: User; token: string }) 
   }
 
   return (
-    <div className="flex h-dvh overflow-hidden">
+    <div ref={shell} className="fixed inset-x-0 top-0 flex h-dvh overflow-hidden">
       <div className={`${active ? "hidden md:flex" : "flex"} w-full shrink-0 md:w-80`}>
         <Sidebar
           user={user}

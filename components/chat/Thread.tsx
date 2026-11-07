@@ -21,6 +21,7 @@ type Props = {
 
 export default function Thread({ conversation, status, problem, onSend, onResend, onConnect, onBack }: Props) {
   const { peerId, messages } = conversation;
+  const log = useRef<HTMLDivElement>(null);
   const bottom = useRef<HTMLDivElement>(null);
   // Not messages.length: that stops changing once the conversation is full
   const newestKey = messages.at(-1)?.key;
@@ -28,6 +29,19 @@ export default function Thread({ conversation, status, problem, onSend, onResend
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "end" });
   }, [newestKey]);
+
+  // Opening the keyboard shortens the log from the bottom, which would hide the newest messages
+  useEffect(() => {
+    const element = log.current;
+    if (!element) return;
+    let height = element.clientHeight;
+    const observer = new ResizeObserver(() => {
+      element.scrollTop += height - element.clientHeight;
+      height = element.clientHeight;
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <>
@@ -59,10 +73,15 @@ export default function Thread({ conversation, status, problem, onSend, onResend
         </p>
       )}
 
-      <div role="log" aria-label={`Messages with user ${peerId}`} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <div
+        ref={log}
+        role="log"
+        aria-label={`Messages with user ${peerId}`}
+        className="min-h-0 flex-1 overflow-y-auto px-4 py-4"
+      >
         {messages.length === 0 ? (
           <p className="mt-8 text-center text-sm text-muted">
-            Say hello. Messages only reach User {peerId} while they&apos;re online.
+            Say hello. If User {peerId} is offline, they&apos;ll get your messages when they connect.
           </p>
         ) : (
           <ul className="space-y-2">
@@ -181,7 +200,7 @@ function Composer({
             maxLength={MAX_URL}
             value={url}
             onChange={(event) => setUrl(event.target.value)}
-            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted"
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-base placeholder:text-muted md:text-sm"
           />
           {urlInvalid && <p className="mt-1 text-xs text-danger">Enter a full http or https link</p>}
         </div>
@@ -204,7 +223,7 @@ function Composer({
           value={text}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={handleKeyDown}
-          className="field-sizing-content max-h-40 min-w-0 flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted"
+          className="field-sizing-content max-h-40 min-w-0 flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-base placeholder:text-muted md:text-sm"
         />
         <button
           type="submit"

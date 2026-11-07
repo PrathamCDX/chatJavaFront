@@ -8,7 +8,7 @@ import { setToken, useToken } from "@/lib/session";
 type Mode = "login" | "signup";
 
 const inputClass =
-  "w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm placeholder:text-muted";
+  "w-full rounded-lg border border-border bg-background px-3 py-2.5 text-base placeholder:text-muted md:text-sm";
 
 export default function AuthScreen() {
   const router = useRouter();
