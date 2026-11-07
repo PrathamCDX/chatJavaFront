@@ -21,7 +21,10 @@ export type ServerEvent =
       timestamp: string;
       sentAt: string;
     }
-  | { type: "sent"; id: string; receiverId: number; delivered: boolean; sentAt: string }
+  /** The server has queued my message for the receiver. */
+  | { type: "sent"; id: string; receiverId: number; sentAt: string }
+  /** The receiver acked my message. Lost if I'm offline at that moment. */
+  | { type: "delivered"; id: string; receiverId: number; deliveredAt: string }
   // The server can't check messageId, so only readerId and readAt can be trusted
   | { type: "readReceipt"; messageId: string; readerId: number; readAt: string }
   | { type: "pong"; serverTime: string }
@@ -29,7 +32,8 @@ export type ServerEvent =
 
 export type ClientFrame =
   | { type: "message"; id: string; timestamp: string; receiverId: number; text: string | null; url: string | null }
-  /** receiverId is the user who sent the message being marked read. */
+  /** For both of these, receiverId is the user who sent the message. */
+  | { type: "messageAck"; messageId: string; receiverId: number }
   | { type: "readReceipt"; messageId: string; receiverId: number };
 
 export type SocketStatus = "disconnected" | "connecting" | "online" | "offline";
@@ -98,6 +102,11 @@ export function useChatSocket(token: string, handlers: Handlers) {
           setStatus("online");
         }
         onEvent(event);
+        // Repeats need this too: the server resends a message on every connect until it's acked
+        if (event.type === "message" && ws.readyState === WebSocket.OPEN) {
+          const ack: ClientFrame = { type: "messageAck", messageId: event.id, receiverId: event.senderId };
+          ws.send(JSON.stringify(ack));
+        }
       };
       ws.onclose = ({ code, reason }) => {
         if (socket.current === ws) socket.current = null;

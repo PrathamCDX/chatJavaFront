@@ -32,12 +32,10 @@ export default function ChatApp({ user, token }: { user: User; token: string }) 
         break;
       case "sent":
         pending.current = pending.current.filter(({ key }) => key !== event.id);
-        dispatch({
-          type: "update",
-          peerId: event.receiverId,
-          key: event.id,
-          patch: { status: event.delivered ? "delivered" : "undelivered", sentAt: event.sentAt },
-        });
+        dispatch({ type: "sent", peerId: event.receiverId, key: event.id, sentAt: event.sentAt });
+        break;
+      case "delivered":
+        dispatch({ type: "delivered", peerId: event.receiverId, key: event.id });
         break;
       case "readReceipt":
         dispatch({ type: "read", peerId: event.readerId, key: event.messageId, readAt: event.readAt });

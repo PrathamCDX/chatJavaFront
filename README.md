@@ -43,14 +43,17 @@ Both settings live in `.env`, and the app won't start without them. `.env` is gi
 The JWT is read and written through the `TokenStore` interface in `lib/token-store.ts`. To store it somewhere else,
 add an implementation in that file and assign it to `tokenStore`.
 
-## Read receipts
+## Message status
 
-A message counts as read once its thread is open in a focused tab while connected, and the sender then sees "Read".
-Receipts are best effort: the backend drops one if the sender is offline at that moment.
+- **Sent**: the backend has queued the message for the receiver. It keeps it until the receiver acks it, for up to 24 hours, and resends it each time they connect.
+- **Delivered**: the receiver's app got the message and sent a `messageAck`. It acks every message it receives, repeats included.
+- **Read**: the thread is open in a focused tab while connected.
+
+"Delivered" and "Read" are best effort: the backend drops either one if the sender is offline at that moment, so a message can stay on "Sent" after it arrived.
 
 ## Limits that come from the backend
 
 - People are addressed by numeric user ID, because listing users is admin-only.
 - Other people show as "User 14", because no endpoint returns another user's name.
-- Messages aren't stored. A message sent to someone offline or disconnected is lost, and the UI marks it "Not delivered".
+- The backend's queue is in memory, so a restart loses messages nobody has received yet. It holds 100 messages per receiver, and past that the sender sees "Receiver's queue is full".
 - Messages live only in React state, so reloading the page or logging out loses them. Each conversation keeps its newest 100 messages, and the oldest are dropped first.

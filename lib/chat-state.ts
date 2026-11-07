@@ -3,9 +3,9 @@ export const MAX_MESSAGES_PER_CONVERSATION = 100;
 
 export type DeliveryStatus =
   | "sending"
+  /** The server has it queued, and keeps it until the receiver acks it or 24 hours pass. */
+  | "sent"
   | "delivered"
-  /** Accepted, but the receiver had no open connection. The backend doesn't store it, so it's gone. */
-  | "undelivered"
   | "failed";
 
 export type Message = {
@@ -36,6 +36,8 @@ export type ChatAction =
   | { type: "open"; peerId: number }
   | { type: "add"; peerId: number; message: Message; unread?: boolean }
   | { type: "update"; peerId: number; key: string; patch: Partial<Message> }
+  | { type: "sent"; peerId: number; key: string; sentAt: string }
+  | { type: "delivered"; peerId: number; key: string }
   | { type: "read"; peerId: number; key: string; readAt: string };
 
 /** A v4 UUID. Not crypto.randomUUID(): that only exists on HTTPS and localhost. */
@@ -75,6 +77,38 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           ...current,
           messages: current.messages.map((message) =>
             message.key === action.key ? { ...message, ...action.patch } : message,
+          ),
+        },
+      };
+    case "sent":
+      return {
+        ...state,
+        [action.peerId]: {
+          ...current,
+          messages: current.messages.map((message) =>
+            message.key === action.key
+              ? {
+                  ...message,
+                  sentAt: action.sentAt,
+                  // A receiver connecting just as the message is queued can ack it before this arrives
+                  status: message.status === "delivered" ? "delivered" : "sent",
+                }
+              : message,
+          ),
+        },
+      };
+    case "delivered":
+      // This can come long after sending, when a reload has already emptied the conversation.
+      // It also overrides "failed": the connection dropped after the server had queued the message.
+      if (!state[action.peerId]) return state;
+      return {
+        ...state,
+        [action.peerId]: {
+          ...current,
+          messages: current.messages.map((message) =>
+            message.key === action.key && message.mine
+              ? { ...message, status: "delivered", error: undefined }
+              : message,
           ),
         },
       };

@@ -93,13 +93,7 @@ function Bubble({
   const { mine, text, url, sentAt, status, error, readAt } = message;
   const time = new Date(sentAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   // A read message clearly arrived, even if its ack was lost or hasn't come in yet
-  const notice = readAt
-    ? null
-    : status === "undelivered"
-      ? "Not delivered: they're offline"
-      : status === "failed"
-        ? error
-        : null;
+  const notice = !readAt && status === "failed" ? error : null;
 
   return (
     <div className={`flex flex-col ${mine ? "items-end" : "items-start"}`}>
@@ -124,6 +118,7 @@ function Bubble({
         <span>{time}</span>
         {mine && readAt && <span>Read</span>}
         {mine && !readAt && status === "sending" && <span>Sending…</span>}
+        {mine && !readAt && status === "sent" && <span>Sent</span>}
         {mine && !readAt && status === "delivered" && <span>Delivered</span>}
         {notice && <span className="text-danger">{notice}</span>}
         {notice && canResend && (
