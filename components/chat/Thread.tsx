@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import type { Conversation, Message } from "@/lib/chat-state";
+import { IMAGE_ACCEPT, imageProblem } from "@/lib/image-upload";
 import type { SocketStatus } from "@/lib/use-chat-socket";
 import { Avatar } from "./Avatar";
 
@@ -14,12 +15,22 @@ type Props = {
   status: SocketStatus;
   problem: string | null;
   onSend: (text: string | null, url: string | null) => void;
+  onSendImage: (file: File) => void;
   onResend: (message: Message) => void;
   onConnect: () => void;
   onBack: () => void;
 };
 
-export default function Thread({ conversation, status, problem, onSend, onResend, onConnect, onBack }: Props) {
+export default function Thread({
+  conversation,
+  status,
+  problem,
+  onSend,
+  onSendImage,
+  onResend,
+  onConnect,
+  onBack,
+}: Props) {
   const { peerId, messages } = conversation;
   const log = useRef<HTMLDivElement>(null);
   const bottom = useRef<HTMLDivElement>(null);
@@ -42,6 +53,14 @@ export default function Thread({ conversation, status, problem, onSend, onResend
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
+
+  // An image gets its height only once it loads. If that pushed the bottom out of view, follow it
+  function handleImageLoad(image: HTMLImageElement) {
+    const element = log.current;
+    if (!element) return;
+    const fromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
+    if (fromBottom - image.offsetHeight < 48) bottom.current?.scrollIntoView({ block: "end" });
+  }
 
   return (
     <>
@@ -87,7 +106,12 @@ export default function Thread({ conversation, status, problem, onSend, onResend
           <ul className="space-y-2">
             {messages.map((message) => (
               <li key={message.key}>
-                <Bubble message={message} onResend={() => onResend(message)} canResend={status === "online"} />
+                <Bubble
+                  message={message}
+                  onResend={() => onResend(message)}
+                  canResend={status === "online"}
+                  onImageLoad={handleImageLoad}
+                />
               </li>
             ))}
           </ul>
@@ -95,7 +119,7 @@ export default function Thread({ conversation, status, problem, onSend, onResend
         <div ref={bottom} />
       </div>
 
-      <Composer disabled={status !== "online"} onSend={onSend} />
+      <Composer disabled={status !== "online"} onSend={onSend} onSendImage={onSendImage} />
     </>
   );
 }
@@ -104,12 +128,14 @@ function Bubble({
   message,
   onResend,
   canResend,
+  onImageLoad,
 }: {
   message: Message;
   onResend: () => void;
   canResend: boolean;
+  onImageLoad: (image: HTMLImageElement) => void;
 }) {
-  const { mine, text, url, sentAt, status, error, readAt } = message;
+  const { mine, text, url, image, progress, sentAt, status, error, readAt } = message;
   const time = new Date(sentAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   // A read message clearly arrived, even if its ack was lost or hasn't come in yet
   const notice = !readAt && status === "failed" ? error : null;
@@ -117,10 +143,13 @@ function Bubble({
   return (
     <div className={`flex flex-col ${mine ? "items-end" : "items-start"}`}>
       <div
-        className={`max-w-[80%] rounded-2xl px-3.5 py-2 text-sm wrap-anywhere whitespace-pre-wrap md:max-w-[65%] ${
+        className={`max-w-[80%] rounded-2xl text-sm wrap-anywhere whitespace-pre-wrap md:max-w-[65%] ${
+          image !== undefined ? "p-1" : "px-3.5 py-2"
+        } ${
           mine ? "rounded-br-md bg-accent text-accent-foreground" : "rounded-bl-md bg-surface"
         } ${status === "sending" ? "opacity-70" : ""}`}
       >
+        {image !== undefined && <ImagePreview src={image} onLoad={onImageLoad} />}
         {text}
         {url && (
           <a
@@ -136,7 +165,9 @@ function Bubble({
       <p className="mt-0.5 flex gap-1.5 px-1 text-[11px] text-muted">
         <span>{time}</span>
         {mine && readAt && <span>Read</span>}
-        {mine && !readAt && status === "sending" && <span>Sending…</span>}
+        {mine && !readAt && status === "sending" && (
+          <span>{progress !== undefined ? `Uploading ${Math.round(progress * 100)}%` : "Sending…"}</span>
+        )}
         {mine && !readAt && status === "sent" && <span>Sent</span>}
         {mine && !readAt && status === "delivered" && <span>Delivered</span>}
         {notice && <span className="text-danger">{notice}</span>}
@@ -150,17 +181,71 @@ function Bubble({
   );
 }
 
+function ImagePreview({ src, onLoad }: { src: string; onLoad: (image: HTMLImageElement) => void }) {
+  // The src that failed. Not a boolean: a new src (the backend's copy replacing the preview) gets its own try,
+  // and keeping the same <img> shows the old picture until the new one loads
+  const [failed, setFailed] = useState<string | null>(null);
+  if (src === "" || failed === src) return <p className="px-2.5 py-1 italic opacity-80">Image unavailable</p>;
+  return (
+    <a href={src} target="_blank" rel="noopener noreferrer" className="block">
+      {/* Not next/image: these are local previews or backend files of unknown size */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt="Image"
+        onLoad={(event) => onLoad(event.currentTarget)}
+        onError={() => setFailed(src)}
+        className="block max-h-72 max-w-full rounded-xl object-contain"
+      />
+    </a>
+  );
+}
+
 function Composer({
   disabled,
   onSend,
+  onSendImage,
 }: {
   disabled: boolean;
   onSend: (text: string | null, url: string | null) => void;
+  onSendImage: (file: File) => void;
 }) {
   const [text, setText] = useState("");
   const [url, setUrl] = useState("");
   const [showUrl, setShowUrl] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [attachOpen, setAttachOpen] = useState(false);
+  const attach = useRef<HTMLDivElement>(null);
+  const attachToggle = useRef<HTMLButtonElement>(null);
+  const attachOptionsId = useId();
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
+
+  // The options close on a click anywhere else, or on Escape
+  useEffect(() => {
+    if (!attachOpen) return;
+    function handlePointerDown(event: PointerEvent) {
+      if (!attach.current?.contains(event.target as Node)) setAttachOpen(false);
+    }
+    function handleKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      setAttachOpen(false);
+      attachToggle.current?.focus();
+    }
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [attachOpen]);
+
+  function pickImage(file: File | undefined) {
+    if (!file) return;
+    const problem = imageProblem(file);
+    setImageError(problem);
+    if (!problem) onSendImage(file);
+  }
 
   const trimmedUrl = url.trim();
   const urlInvalid = trimmedUrl !== "" && !isHttpUrl(trimmedUrl);
@@ -200,20 +285,79 @@ function Composer({
             maxLength={MAX_URL}
             value={url}
             onChange={(event) => setUrl(event.target.value)}
+            autoFocus
             className="w-full rounded-lg border border-border bg-background px-3 py-2 text-base placeholder:text-muted md:text-sm"
           />
           {urlInvalid && <p className="mt-1 text-xs text-danger">Enter a full http or https link</p>}
         </div>
       )}
+      {imageError && (
+        <p role="alert" className="mb-2 text-xs text-danger">
+          {imageError}
+        </p>
+      )}
       <div className="flex items-end gap-2">
-        <button
-          type="button"
-          onClick={() => setShowUrl(!showUrl)}
-          aria-expanded={showUrl}
-          className="rounded-lg px-2 py-2 text-sm text-muted hover:text-foreground"
-        >
-          Link
-        </button>
+        <input
+          ref={picker}
+          type="file"
+          accept={IMAGE_ACCEPT}
+          aria-label="Image to send"
+          className="hidden"
+          onChange={(event) => {
+            pickImage(event.target.files?.[0]);
+            // Lets the same file be picked again
+            event.target.value = "";
+          }}
+        />
+        <div ref={attach} className="relative shrink-0">
+          <button
+            ref={attachToggle}
+            type="button"
+            aria-label="Attach"
+            aria-expanded={attachOpen}
+            aria-controls={attachOptionsId}
+            onClick={() => setAttachOpen(!attachOpen)}
+            className="flex size-9 items-center justify-center rounded-full text-muted transition-colors hover:bg-subtle hover:text-foreground"
+          >
+            <svg
+              viewBox="0 0 20 20"
+              aria-hidden="true"
+              className={`size-5 transition-transform ${attachOpen ? "rotate-45" : ""}`}
+            >
+              <path d="M10 4v12M4 10h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </button>
+          {attachOpen && (
+            <div
+              id={attachOptionsId}
+              className="absolute bottom-full left-0 z-10 mb-2 w-40 overflow-hidden rounded-lg border border-border bg-surface py-1 shadow-lg"
+            >
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => {
+                  setAttachOpen(false);
+                  picker.current?.click();
+                }}
+                className="block w-full px-3 py-2 text-left text-sm hover:bg-subtle disabled:opacity-50 disabled:hover:bg-transparent"
+              >
+                Photo
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAttachOpen(false);
+                  setShowUrl(!showUrl);
+                  // A hidden link would otherwise still be sent
+                  setUrl("");
+                }}
+                className="block w-full px-3 py-2 text-left text-sm hover:bg-subtle"
+              >
+                {showUrl ? "Remove link" : "Link"}
+              </button>
+            </div>
+          )}
+        </div>
         <textarea
           ref={textarea}
           aria-label="Message"

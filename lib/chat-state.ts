@@ -14,6 +14,10 @@ export type Message = {
   mine: boolean;
   text: string | null;
   url: string | null;
+  /** An image message's src: a local preview while mine uploads, then the backend's copy. */
+  image?: string;
+  /** While my image uploads: the share done so far, from 0 to 1. */
+  progress?: number;
   sentAt: string;
   status?: DeliveryStatus;
   error?: string;

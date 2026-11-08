@@ -51,9 +51,20 @@ add an implementation in that file and assign it to `tokenStore`.
 
 "Delivered" and "Read" are best effort: the backend drops either one if the sender is offline at that moment, so a message can stay on "Sent" after it arrived.
 
+## Images
+
+**+** then **Photo** sends a JPEG or PNG of up to 10 MB (`lib/image-upload.ts`). The sender sees it right away, with upload progress, while the app:
+
+1. Calls `POST /file/initiate` with the image's extension, size and part count, using the message's id as `messageId`.
+2. Uploads it in 1 MB parts with `PUT /storage/{messageId}/parts/{n}`. A part that fails on the network or with a 5xx is retried twice.
+3. Sends an `image` frame over the WebSocket once every part is uploaded.
+
+Every step is safe to repeat, so **Send again** on a failed image starts the upload again. The receiver shows the image from `GET /file/{messageId}/content`, which needs no token, and acks it like a message.
+
 ## Limits that come from the backend
 
 - People are addressed by numeric user ID, because listing users is admin-only.
 - Other people show as "User 14", because no endpoint returns another user's name.
 - The backend's queue is in memory, so a restart loses messages nobody has received yet. It holds 100 messages per receiver, and past that the sender sees "Receiver's queue is full".
+- Anyone who has an image's message id can download it, because the backend serves files without a token.
 - Messages live only in React state, so reloading the page or logging out loses them. Each conversation keeps its newest 100 messages, and the oldest are dropped first.

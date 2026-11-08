@@ -8,6 +8,7 @@ export type User = {
 
 type AuthResult = { token: string; email: string };
 type Ticket = { ticket: string; expiresInSeconds: number };
+export type FileDetails = { id: number; extension: string; sizeKb: number; messageId: string; parts: number };
 
 /** Shape of every backend response, success or failure. */
 type Envelope<T> = { success: boolean; message: string; data: T };
@@ -27,19 +28,28 @@ const UNREACHABLE = "Can't reach the server. Is the backend running?";
 
 async function request<T>(
   path: string,
-  { method = "GET", body, token }: { method?: string; body?: unknown; token?: string } = {},
+  {
+    method = "GET",
+    body,
+    token,
+    signal,
+  }: { method?: string; body?: unknown; token?: string; signal?: AbortSignal } = {},
 ): Promise<T> {
+  // A Blob is sent as raw bytes, anything else as JSON
+  const raw = body instanceof Blob;
   let response: Response;
   try {
     response = await fetch(`/api${path}`, {
       method,
       headers: {
-        ...(body !== undefined && { "Content-Type": "application/json" }),
+        ...(body !== undefined && { "Content-Type": raw ? "application/octet-stream" : "application/json" }),
         ...(token && { Authorization: `Bearer ${token}` }),
       },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: raw ? body : body !== undefined ? JSON.stringify(body) : undefined,
+      signal,
     });
-  } catch {
+  } catch (error) {
+    if (signal?.aborted) throw error;
     throw new ApiError(UNREACHABLE, 0);
   }
 
@@ -62,4 +72,18 @@ export const api = {
     request<AuthResult>("/auth/signup", { method: "POST", body: { fullName, email, password } }),
   me: (token: string) => request<User>("/users/me", { token }),
   wsTicket: (token: string) => request<Ticket>("/ws/ticket", { method: "POST", token }),
+  /** Safe to repeat with the same details. */
+  initiateFile: (
+    token: string,
+    file: { extension: string; sizeKb: number; messageId: string; parts: number },
+    signal?: AbortSignal,
+  ) => request<FileDetails>("/file/initiate", { method: "POST", body: file, token, signal }),
+  /** Safe to repeat: a repeated part replaces the stored one. */
+  putFilePart: (token: string, messageId: string, partNo: number, bytes: Blob, signal?: AbortSignal) =>
+    request<unknown>(`/storage/${messageId}/parts/${partNo}`, { method: "PUT", body: bytes, token, signal }),
 };
+
+/** Where the backend serves a message's file. Public, so it works as an <img> src. */
+export function fileContentUrl(messageId: string) {
+  return `/api/file/${messageId}/content`;
+}

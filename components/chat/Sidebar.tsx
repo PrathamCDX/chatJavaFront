@@ -117,7 +117,7 @@ function ConversationRow({
   onOpen: (peerId: number) => void;
 }) {
   const last = messages.at(-1);
-  const preview = last ? `${last.mine ? "You: " : ""}${last.text ?? last.url}` : "No messages yet";
+  const preview = last ? `${last.mine ? "You: " : ""}${last.image !== undefined ? "Photo" : (last.text ?? last.url)}` : "No messages yet";
 
   return (
     <button
