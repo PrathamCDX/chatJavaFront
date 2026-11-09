@@ -2,7 +2,7 @@ import { api, ApiError } from "./api";
 
 /** Each part is uploaded in its own request. */
 export const IMAGE_PART_BYTES = 1024 * 1024;
-export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+export const MAX_IMAGE_BYTES = 50 * 1024 * 1024;
 const MAX_ATTEMPTS = 3;
 
 // The backend only accepts these. It checks the extension, not the bytes

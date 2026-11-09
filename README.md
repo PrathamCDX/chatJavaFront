@@ -53,7 +53,7 @@ add an implementation in that file and assign it to `tokenStore`.
 
 ## Images
 
-**+** then **Photo** sends a JPEG or PNG of up to 10 MB (`lib/image-upload.ts`). The sender sees it right away, with upload progress, while the app:
+**+** then **Photo** sends a JPEG or PNG of up to 50 MB (`lib/image-upload.ts`). The sender sees it right away, with upload progress, while the app:
 
 1. Calls `POST /file/initiate` with the image's extension, size and part count, using the message's id as `messageId`.
 2. Uploads it in 1 MB parts with `PUT /storage/{messageId}/parts/{n}`. A part that fails on the network or with a 5xx is retried twice.
