@@ -7,7 +7,9 @@ for (const name of ["BACKEND_URL", "NEXT_PUBLIC_WS_URL"]) {
   }
 }
 
-const backendUrl = process.env.BACKEND_URL;
+// Without the trailing slash: "https://host/" would rewrite /api/auth/login to "//auth/login",
+// which Spring Security rejects
+const backendUrl = process.env.BACKEND_URL!.replace(/\/+$/, "");
 
 const nextConfig: NextConfig = {
   /* config options here */
