@@ -17,6 +17,8 @@ type Upload = { file: File; preview: string; uploaded: boolean; controller?: Abo
 
 // The backend sends a path; only accept the one shape it uses
 const IMAGE_PATH = /^\/file\/([0-9a-f-]{36})\/content$/i;
+/** The abort reason when the user pauses an upload, as opposed to leaving the page. */
+const PAUSED = "paused";
 
 export default function ChatApp({ user, token }: { user: User; token: string }) {
   // Lives only in this state, so a reload or logout loses it. Nothing is written to the browser.
@@ -128,6 +130,7 @@ export default function ChatApp({ user, token }: { user: User; token: string }) 
     if (!upload.uploaded) {
       const controller = new AbortController();
       upload.controller = controller;
+      dispatch({ type: "update", peerId, key, patch: { paused: undefined } });
       try {
         await uploadImage(token, key, upload.file, {
           signal: controller.signal,
@@ -139,6 +142,9 @@ export default function ChatApp({ user, token }: { user: User; token: string }) 
           clearToken();
           return;
         }
+        // Paused: the message waits for Resume. Checked on this run's own signal, since a quick
+        // Resume may already have started the next run
+        if (controller.signal.reason === PAUSED) return;
         const message = controller.signal.aborted
           ? "Upload stopped"
           : error instanceof Error
@@ -147,7 +153,7 @@ export default function ChatApp({ user, token }: { user: User; token: string }) 
         dispatch({ type: "update", peerId, key, patch: { status: "failed", error: message, progress: undefined } });
         return;
       } finally {
-        upload.controller = undefined;
+        if (upload.controller === controller) upload.controller = undefined;
       }
       dispatch({ type: "update", peerId, key, patch: { progress: undefined } });
     }
@@ -183,6 +189,22 @@ export default function ChatApp({ user, token }: { user: User; token: string }) 
       status: "sending",
     };
     dispatch({ type: "add", peerId, message });
+    transmitImage(peerId, key);
+  }
+
+  function handlePause(peerId: number, key: string) {
+    const controller = uploads.current.get(key)?.controller;
+    if (!controller) return;
+    dispatch({ type: "update", peerId, key, patch: { paused: true } });
+    // Drops the part in flight too; Resume sends it again
+    controller.abort(PAUSED);
+    // Lets Resume start right away, before the stopped run has finished unwinding
+    uploads.current.get(key)!.controller = undefined;
+  }
+
+  function handleResume(peerId: number, key: string) {
+    const upload = uploads.current.get(key);
+    if (!upload || upload.controller) return;
     transmitImage(peerId, key);
   }
 
@@ -242,6 +264,8 @@ export default function ChatApp({ user, token }: { user: User; token: string }) 
             onSend={(text, url) => handleSend(active.peerId, text, url)}
             onSendImage={(file) => handleSendImage(active.peerId, file)}
             onResend={(message) => handleResend(active.peerId, message)}
+            onPause={(message) => handlePause(active.peerId, message.key)}
+            onResume={(message) => handleResume(active.peerId, message.key)}
             onConnect={connect}
             onBack={() => setActivePeerId(null)}
           />

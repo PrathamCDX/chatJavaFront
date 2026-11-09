@@ -18,6 +18,8 @@ export type Message = {
   image?: string;
   /** While my image uploads: the share done so far, from 0 to 1. */
   progress?: number;
+  /** While my image uploads: stopped by me, waiting for Resume. Status stays "sending". */
+  paused?: boolean;
   sentAt: string;
   status?: DeliveryStatus;
   error?: string;

@@ -56,10 +56,11 @@ add an implementation in that file and assign it to `tokenStore`.
 **+** then **Photo** sends a JPEG or PNG of up to 50 MB (`lib/image-upload.ts`). The sender sees it right away, with upload progress, while the app:
 
 1. Calls `POST /file/initiate` with the image's extension, size and part count, using the message's id as `messageId`.
-2. Uploads it in 1 MB parts with `PUT /storage/{messageId}/parts/{n}`. A part that fails on the network or with a 5xx is retried twice.
-3. Sends an `image` frame over the WebSocket once every part is uploaded.
+2. Asks `GET /storage/{messageId}/parts` which parts the backend is still missing.
+3. Uploads those in 1 MB parts with `PUT /storage/{messageId}/parts/{n}`. A part that fails on the network or with a 5xx is retried twice.
+4. Sends an `image` frame over the WebSocket once every part is uploaded.
 
-Every step is safe to repeat, so **Send again** on a failed image starts the upload again. The receiver shows the image from `GET /file/{messageId}/content`, which needs no token, and acks it like a message.
+**Pause** under an uploading image stops it, dropping the part in flight; **Resume** continues from the parts the backend already has. Every step is safe to repeat, so **Send again** on a failed image also picks up where it stopped. The receiver shows the image from `GET /file/{messageId}/content`, which needs no token, and acks it like a message.
 
 ## Limits that come from the backend
 

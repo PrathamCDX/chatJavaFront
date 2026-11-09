@@ -17,6 +17,8 @@ type Props = {
   onSend: (text: string | null, url: string | null) => void;
   onSendImage: (file: File) => void;
   onResend: (message: Message) => void;
+  onPause: (message: Message) => void;
+  onResume: (message: Message) => void;
   onConnect: () => void;
   onBack: () => void;
 };
@@ -28,6 +30,8 @@ export default function Thread({
   onSend,
   onSendImage,
   onResend,
+  onPause,
+  onResume,
   onConnect,
   onBack,
 }: Props) {
@@ -109,6 +113,8 @@ export default function Thread({
                 <Bubble
                   message={message}
                   onResend={() => onResend(message)}
+                  onPause={() => onPause(message)}
+                  onResume={() => onResume(message)}
                   canResend={status === "online"}
                   onImageLoad={handleImageLoad}
                 />
@@ -127,15 +133,19 @@ export default function Thread({
 function Bubble({
   message,
   onResend,
+  onPause,
+  onResume,
   canResend,
   onImageLoad,
 }: {
   message: Message;
   onResend: () => void;
+  onPause: () => void;
+  onResume: () => void;
   canResend: boolean;
   onImageLoad: (image: HTMLImageElement) => void;
 }) {
-  const { mine, text, url, image, progress, sentAt, status, error, readAt } = message;
+  const { mine, text, url, image, progress, paused, sentAt, status, error, readAt } = message;
   const time = new Date(sentAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   // A read message clearly arrived, even if its ack was lost or hasn't come in yet
   const notice = !readAt && status === "failed" ? error : null;
@@ -165,8 +175,18 @@ function Bubble({
       <p className="mt-0.5 flex gap-1.5 px-1 text-[11px] text-muted">
         <span>{time}</span>
         {mine && readAt && <span>Read</span>}
-        {mine && !readAt && status === "sending" && (
-          <span>{progress !== undefined ? `Uploading ${Math.round(progress * 100)}%` : "Sending…"}</span>
+        {mine && !readAt && status === "sending" && progress === undefined && <span>Sending…</span>}
+        {mine && !readAt && status === "sending" && progress !== undefined && (
+          <>
+            <span>{`${paused ? "Paused" : "Uploading"} ${Math.round(progress * 100)}%`}</span>
+            <button
+              type="button"
+              onClick={paused ? onResume : onPause}
+              className="font-medium underline hover:text-foreground"
+            >
+              {paused ? "Resume" : "Pause"}
+            </button>
+          </>
         )}
         {mine && !readAt && status === "sent" && <span>Sent</span>}
         {mine && !readAt && status === "delivered" && <span>Delivered</span>}
@@ -185,16 +205,37 @@ function ImagePreview({ src, onLoad }: { src: string; onLoad: (image: HTMLImageE
   // The src that failed. Not a boolean: a new src (the backend's copy replacing the preview) gets its own try,
   // and keeping the same <img> shows the old picture until the new one loads
   const [failed, setFailed] = useState<string | null>(null);
-  if (src === "" || failed === src) return <p className="px-2.5 py-1 italic opacity-80">Image unavailable</p>;
+  const [attempt, setAttempt] = useState(0);
+  // A retry changes the URL so the browser fetches again instead of reusing the failed response.
+  // Blob previews are skipped: a query string breaks blob URLs, and a local file won't load on a second try anyway.
+  const shown = attempt > 0 && !src.startsWith("blob:") ? `${src}${src.includes("?") ? "&" : "?"}retry=${attempt}` : src;
+  if (src === "") return <p className="px-2.5 py-1 italic opacity-80">Image unavailable</p>;
+  if (failed === shown) {
+    return (
+      <p className="flex items-center gap-2 px-2.5 py-1">
+        <span className="italic opacity-80">Image unavailable</span>
+        <button
+          type="button"
+          onClick={() => {
+            setFailed(null);
+            setAttempt((n) => n + 1);
+          }}
+          className="font-medium underline"
+        >
+          Retry
+        </button>
+      </p>
+    );
+  }
   return (
     <a href={src} target="_blank" rel="noopener noreferrer" className="block">
       {/* Not next/image: these are local previews or backend files of unknown size */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={src}
+        src={shown}
         alt="Image"
         onLoad={(event) => onLoad(event.currentTarget)}
-        onError={() => setFailed(src)}
+        onError={() => setFailed(shown)}
         className="block max-h-72 max-w-full rounded-xl object-contain"
       />
     </a>

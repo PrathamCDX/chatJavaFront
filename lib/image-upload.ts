@@ -24,7 +24,8 @@ export function imageProblem(file: File) {
 
 /**
  * Uploads the image under the message's id, so it can then be sent as an "image" frame. Every
- * step is safe to repeat, so a failed upload can simply be started again.
+ * step is safe to repeat, and only the parts the backend doesn't have yet are sent, so a stopped
+ * (paused or failed) upload continues where it left off when started again.
  */
 export async function uploadImage(
   token: string,
@@ -40,10 +41,25 @@ export async function uploadImage(
       signal,
     ),
   );
-  for (let partNo = 0; partNo < parts; partNo++) {
+  const missing = await withRetry(signal, () => missingParts(token, messageId, parts, signal));
+  let done = parts - missing.length;
+  onProgress?.(done / parts);
+  for (const partNo of missing) {
     const bytes = file.slice(partNo * IMAGE_PART_BYTES, (partNo + 1) * IMAGE_PART_BYTES);
     await withRetry(signal, () => api.putFilePart(token, messageId, partNo, bytes, signal));
-    onProgress?.((partNo + 1) / parts);
+    onProgress?.(++done / parts);
+  }
+}
+
+async function missingParts(token: string, messageId: string, parts: number, signal?: AbortSignal) {
+  try {
+    return (await api.fileParts(token, messageId, signal)).missing;
+  } catch (error) {
+    // A backend without the parts endpoint: send every part
+    if (error instanceof ApiError && (error.status === 404 || error.status === 405)) {
+      return Array.from({ length: parts }, (_, partNo) => partNo);
+    }
+    throw error;
   }
 }
 

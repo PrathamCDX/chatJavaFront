@@ -9,6 +9,8 @@ export type User = {
 type AuthResult = { token: string; email: string };
 type Ticket = { ticket: string; expiresInSeconds: number };
 export type FileDetails = { id: number; extension: string; sizeKb: number; messageId: string; parts: number };
+/** Part numbers run from 0 to parts - 1; both lists are ascending. */
+export type FileParts = { fileId: number; parts: number; uploaded: number[]; missing: number[] };
 
 /** Shape of every backend response, success or failure. */
 type Envelope<T> = { success: boolean; message: string; data: T };
@@ -81,6 +83,9 @@ export const api = {
   /** Safe to repeat: a repeated part replaces the stored one. */
   putFilePart: (token: string, messageId: string, partNo: number, bytes: Blob, signal?: AbortSignal) =>
     request<unknown>(`/storage/${messageId}/parts/${partNo}`, { method: "PUT", body: bytes, token, signal }),
+  /** Which parts the backend already has, so an upload can pick up where it stopped. */
+  fileParts: (token: string, messageId: string, signal?: AbortSignal) =>
+    request<FileParts>(`/storage/${messageId}/parts`, { token, signal }),
 };
 
 /** Where the backend serves a message's file. Public, so it works as an <img> src. */
