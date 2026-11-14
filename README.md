@@ -57,15 +57,21 @@ add an implementation in that file and assign it to `tokenStore`.
 
 1. Calls `POST /file/initiate` with the image's extension, size and part count, using the message's id as `messageId`.
 2. Asks `GET /storage/{messageId}/parts` which parts the backend is still missing.
-3. Uploads those in 1 MB parts with `PUT /storage/{messageId}/parts/{n}`. A part that fails on the network or with a 5xx is retried twice.
+3. Uploads those in 1 MB parts with `PUT /storage/{messageId}/parts/{n}`, 3 at a time (`uploadImageV2`; `uploadImage` is the one-at-a-time v1). A part that fails on the network or with a 5xx is retried twice; if it still fails, the other parts in flight are stopped and the upload fails.
 4. Sends an `image` frame over the WebSocket once every part is uploaded.
 
-**Pause** under an uploading image stops it, dropping the part in flight; **Resume** continues from the parts the backend already has. Every step is safe to repeat, so **Send again** on a failed image also picks up where it stopped. The receiver shows the image from `GET /file/{messageId}/content`, which needs no token, and acks it like a message.
+**Pause** under an uploading image stops it, dropping the parts in flight; **Resume** continues from the parts the backend already has. Every step is safe to repeat, so **Send again** on a failed image also picks up where it stopped. The receiver shows the image from `GET /file/{messageId}/content`, which needs no token, and acks it like a message.
+
+## Documents
+
+**+** then **Document** sends any file of up to 5 GB (5120 parts), the same way as an image (same steps, Pause, Resume and Send again), then a `document` frame. The extension sent is the file name's, or `bin` if it has none the backend accepts (1 to 10 letters and digits).
+
+The receiver only gets a link: the bubble shows the type and size, and nothing is downloaded until they click it, which saves the file from `GET /file/{messageId}/content`. The backend doesn't keep file names, so the receiver sees "PDF file" and the download is named `<messageId>.pdf`; only the sender sees the original name.
 
 ## Limits that come from the backend
 
 - People are addressed by numeric user ID, because listing users is admin-only.
 - Other people show as "User 14", because no endpoint returns another user's name.
 - The backend's queue is in memory, so a restart loses messages nobody has received yet. It holds 100 messages per receiver, and past that the sender sees "Receiver's queue is full".
-- Anyone who has an image's message id can download it, because the backend serves files without a token.
+- Anyone who has an image's or document's message id can download it, because the backend serves files without a token.
 - Messages live only in React state, so reloading the page or logging out loses them. Each conversation keeps its newest 100 messages, and the oldest are dropped first.

@@ -2,8 +2,8 @@
 
 import { useEffect, useReducer, useRef, useState } from "react";
 import { ApiError, fileContentUrl, type User } from "@/lib/api";
-import { chatReducer, newMessageId, type Message } from "@/lib/chat-state";
-import { uploadImage } from "@/lib/image-upload";
+import { chatReducer, newMessageId, type DocumentInfo, type Message } from "@/lib/chat-state";
+import { documentExtension, sizeKbOf, uploadImageV2 } from "@/lib/image-upload";
 import { clearToken } from "@/lib/session";
 import { useChatSocket, type ClientFrame, type ServerEvent } from "@/lib/use-chat-socket";
 import { useFitVisualViewport } from "@/lib/use-fit-visual-viewport";
@@ -12,11 +12,18 @@ import Sidebar from "./Sidebar";
 import Thread from "./Thread";
 
 type Pending = { peerId: number; key: string };
-/** An image of mine that the backend hasn't confirmed yet. Kept so a failed send can be retried. */
-type Upload = { file: File; preview: string; uploaded: boolean; controller?: AbortController };
+/** An image or document of mine that the backend hasn't confirmed yet. Kept so a failed send can be retried. */
+type Upload = {
+  kind: "image" | "document";
+  file: File;
+  /** An image's local preview, until the backend has its copy. */
+  preview: string | null;
+  uploaded: boolean;
+  controller?: AbortController;
+};
 
 // The backend sends a path; only accept the one shape it uses
-const IMAGE_PATH = /^\/file\/([0-9a-f-]{36})\/content$/i;
+const FILE_PATH = /^\/file\/([0-9a-f-]{36})\/content$/i;
 /** The abort reason when the user pauses an upload, as opposed to leaving the page. */
 const PAUSED = "paused";
 
@@ -47,7 +54,7 @@ export default function ChatApp({ user, token }: { user: User; token: string }) 
         });
         break;
       case "image": {
-        const id = IMAGE_PATH.exec(event.url)?.[1];
+        const id = FILE_PATH.exec(event.url)?.[1];
         dispatch({
           type: "add",
           peerId: event.senderId,
@@ -64,19 +71,45 @@ export default function ChatApp({ user, token }: { user: User; token: string }) 
         });
         break;
       }
+      case "document": {
+        const id = FILE_PATH.exec(event.url)?.[1];
+        dispatch({
+          type: "add",
+          peerId: event.senderId,
+          unread: event.senderId !== activePeerId,
+          message: {
+            key: event.id,
+            mine: false,
+            text: null,
+            url: null,
+            // Just the link: nothing is fetched until they click it
+            document: {
+              name: null,
+              extension: event.extension,
+              sizeKb: event.sizeKb,
+              href: id ? fileContentUrl(id) : null,
+            },
+            sentAt: event.sentAt,
+          },
+        });
+        break;
+      }
       case "sent": {
         pending.current = pending.current.filter(({ key }) => key !== event.id);
         dispatch({ type: "sent", peerId: event.receiverId, key: event.id, sentAt: event.sentAt });
         const upload = uploads.current.get(event.id);
         if (upload) {
-          // The backend has the whole image now, so the local copy can go
+          // The backend has the whole file now, so the local copy can go
           uploads.current.delete(event.id);
-          URL.revokeObjectURL(upload.preview);
+          if (upload.preview) URL.revokeObjectURL(upload.preview);
           dispatch({
             type: "update",
             peerId: event.receiverId,
             key: event.id,
-            patch: { image: fileContentUrl(event.id) },
+            patch:
+              upload.kind === "image"
+                ? { image: fileContentUrl(event.id) }
+                : { document: { ...documentInfo(upload.file), href: fileContentUrl(event.id) } },
           });
         }
         break;
@@ -110,7 +143,7 @@ export default function ChatApp({ user, token }: { user: User; token: string }) 
     onUnauthorized: clearToken,
   });
 
-  function transmit(frame: Extract<ClientFrame, { type: "message" | "image" }>) {
+  function transmit(frame: Extract<ClientFrame, { type: "message" | "image" | "document" }>) {
     const { receiverId: peerId, id: key } = frame;
     pending.current.push({ peerId, key });
     if (!send(frame)) {
@@ -123,8 +156,8 @@ export default function ChatApp({ user, token }: { user: User; token: string }) 
     transmit({ type: "message", id: key, timestamp: new Date().toISOString(), receiverId: peerId, text, url });
   }
 
-  // Uploads the image if that hasn't finished yet, then sends it
-  async function transmitImage(peerId: number, key: string) {
+  // Uploads the image or document if that hasn't finished yet, then sends it
+  async function transmitFile(peerId: number, key: string) {
     const upload = uploads.current.get(key);
     if (!upload) return;
     if (!upload.uploaded) {
@@ -132,8 +165,9 @@ export default function ChatApp({ user, token }: { user: User; token: string }) 
       upload.controller = controller;
       dispatch({ type: "update", peerId, key, patch: { paused: undefined } });
       try {
-        await uploadImage(token, key, upload.file, {
+        await uploadImageV2(token, key, upload.file, {
           signal: controller.signal,
+          extension: upload.kind === "document" ? documentExtension(upload.file) : undefined,
           onProgress: (progress) => dispatch({ type: "update", peerId, key, patch: { progress } }),
         });
         upload.uploaded = true;
@@ -157,7 +191,7 @@ export default function ChatApp({ user, token }: { user: User; token: string }) 
       }
       dispatch({ type: "update", peerId, key, patch: { progress: undefined } });
     }
-    transmit({ type: "image", id: key, timestamp: new Date().toISOString(), receiverId: peerId });
+    transmit({ type: upload.kind, id: key, timestamp: new Date().toISOString(), receiverId: peerId });
   }
 
   function handleSend(peerId: number, text: string | null, url: string | null) {
@@ -177,7 +211,7 @@ export default function ChatApp({ user, token }: { user: User; token: string }) 
   function handleSendImage(peerId: number, file: File) {
     const key = newMessageId();
     const preview = URL.createObjectURL(file);
-    uploads.current.set(key, { file, preview, uploaded: false });
+    uploads.current.set(key, { kind: "image", file, preview, uploaded: false });
     const message: Message = {
       key,
       mine: true,
@@ -189,14 +223,31 @@ export default function ChatApp({ user, token }: { user: User; token: string }) 
       status: "sending",
     };
     dispatch({ type: "add", peerId, message });
-    transmitImage(peerId, key);
+    transmitFile(peerId, key);
+  }
+
+  function handleSendDocument(peerId: number, file: File) {
+    const key = newMessageId();
+    uploads.current.set(key, { kind: "document", file, preview: null, uploaded: false });
+    const message: Message = {
+      key,
+      mine: true,
+      text: null,
+      url: null,
+      document: documentInfo(file),
+      progress: 0,
+      sentAt: new Date().toISOString(),
+      status: "sending",
+    };
+    dispatch({ type: "add", peerId, message });
+    transmitFile(peerId, key);
   }
 
   function handlePause(peerId: number, key: string) {
     const controller = uploads.current.get(key)?.controller;
     if (!controller) return;
     dispatch({ type: "update", peerId, key, patch: { paused: true } });
-    // Drops the part in flight too; Resume sends it again
+    // Drops the parts in flight too; Resume sends them again
     controller.abort(PAUSED);
     // Lets Resume start right away, before the stopped run has finished unwinding
     uploads.current.get(key)!.controller = undefined;
@@ -205,13 +256,13 @@ export default function ChatApp({ user, token }: { user: User; token: string }) 
   function handleResume(peerId: number, key: string) {
     const upload = uploads.current.get(key);
     if (!upload || upload.controller) return;
-    transmitImage(peerId, key);
+    transmitFile(peerId, key);
   }
 
   function handleResend(peerId: number, message: Message) {
     dispatch({ type: "update", peerId, key: message.key, patch: { status: "sending", error: undefined } });
     if (uploads.current.has(message.key)) {
-      transmitImage(peerId, message.key);
+      transmitFile(peerId, message.key);
     } else {
       transmitText(peerId, message.key, message.text, message.url);
     }
@@ -263,6 +314,7 @@ export default function ChatApp({ user, token }: { user: User; token: string }) 
             problem={problem}
             onSend={(text, url) => handleSend(active.peerId, text, url)}
             onSendImage={(file) => handleSendImage(active.peerId, file)}
+            onSendDocument={(file) => handleSendDocument(active.peerId, file)}
             onResend={(message) => handleResend(active.peerId, message)}
             onPause={(message) => handlePause(active.peerId, message.key)}
             onResume={(message) => handleResume(active.peerId, message.key)}
@@ -282,4 +334,9 @@ export default function ChatApp({ user, token }: { user: User; token: string }) 
       </main>
     </div>
   );
+}
+
+/** A document of mine, as shown before the backend has it. */
+function documentInfo(file: File): DocumentInfo {
+  return { name: file.name, extension: documentExtension(file), sizeKb: sizeKbOf(file), href: null };
 }

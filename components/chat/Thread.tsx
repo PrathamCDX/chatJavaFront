@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import type { Conversation, Message } from "@/lib/chat-state";
-import { IMAGE_ACCEPT, imageProblem } from "@/lib/image-upload";
+import type { Conversation, DocumentInfo, Message } from "@/lib/chat-state";
+import { IMAGE_ACCEPT, documentProblem, imageProblem } from "@/lib/image-upload";
 import type { SocketStatus } from "@/lib/use-chat-socket";
 import { Avatar } from "./Avatar";
 
@@ -16,6 +16,7 @@ type Props = {
   problem: string | null;
   onSend: (text: string | null, url: string | null) => void;
   onSendImage: (file: File) => void;
+  onSendDocument: (file: File) => void;
   onResend: (message: Message) => void;
   onPause: (message: Message) => void;
   onResume: (message: Message) => void;
@@ -29,6 +30,7 @@ export default function Thread({
   problem,
   onSend,
   onSendImage,
+  onSendDocument,
   onResend,
   onPause,
   onResume,
@@ -125,7 +127,12 @@ export default function Thread({
         <div ref={bottom} />
       </div>
 
-      <Composer disabled={status !== "online"} onSend={onSend} onSendImage={onSendImage} />
+      <Composer
+        disabled={status !== "online"}
+        onSend={onSend}
+        onSendImage={onSendImage}
+        onSendDocument={onSendDocument}
+      />
     </>
   );
 }
@@ -145,7 +152,7 @@ function Bubble({
   canResend: boolean;
   onImageLoad: (image: HTMLImageElement) => void;
 }) {
-  const { mine, text, url, image, progress, paused, sentAt, status, error, readAt } = message;
+  const { mine, text, url, image, document, progress, paused, sentAt, status, error, readAt } = message;
   const time = new Date(sentAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   // A read message clearly arrived, even if its ack was lost or hasn't come in yet
   const notice = !readAt && status === "failed" ? error : null;
@@ -160,6 +167,7 @@ function Bubble({
         } ${status === "sending" ? "opacity-70" : ""}`}
       >
         {image !== undefined && <ImagePreview src={image} onLoad={onImageLoad} />}
+        {document && <DocumentLink document={document} />}
         {text}
         {url && (
           <a
@@ -199,6 +207,48 @@ function Bubble({
       </p>
     </div>
   );
+}
+
+function DocumentLink({ document }: { document: DocumentInfo }) {
+  const { name, extension, sizeKb, href } = document;
+  const content = (
+    <>
+      <svg viewBox="0 0 20 20" aria-hidden="true" className="size-8 shrink-0 opacity-80">
+        <path
+          d="M5 2.5h6.5L15.5 6.5v11h-10.5z M11.5 2.5v4h4"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinejoin="round"
+        />
+      </svg>
+      <span className="min-w-0">
+        {/* The receiver never learns the name, only the type */}
+        <span className="block truncate font-medium">{name ?? `${extension.toUpperCase()} file`}</span>
+        <span className="block text-xs opacity-80">
+          {extension.toUpperCase()} · {formatSize(sizeKb)}
+          {!href && name === null && " · unavailable"}
+        </span>
+      </span>
+    </>
+  );
+  const className = "flex items-center gap-2.5 whitespace-normal";
+  if (!href) return <div className={className}>{content}</div>;
+  return (
+    // download: saves it instead of opening it, even for types the browser could show.
+    // Mine keeps its name; for a received one the backend names it <id>.<extension>
+    <a href={href} download={name ?? ""} className={`${className} hover:underline`}>
+      {content}
+    </a>
+  );
+}
+
+function formatSize(kb: number) {
+  if (kb < 1024) return `${kb} KB`;
+  const mb = kb / 1024;
+  if (mb < 1024) return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
+  const gb = mb / 1024;
+  return `${gb < 10 ? gb.toFixed(1) : Math.round(gb)} GB`;
 }
 
 function ImagePreview({ src, onLoad }: { src: string; onLoad: (image: HTMLImageElement) => void }) {
@@ -246,21 +296,24 @@ function Composer({
   disabled,
   onSend,
   onSendImage,
+  onSendDocument,
 }: {
   disabled: boolean;
   onSend: (text: string | null, url: string | null) => void;
   onSendImage: (file: File) => void;
+  onSendDocument: (file: File) => void;
 }) {
   const [text, setText] = useState("");
   const [url, setUrl] = useState("");
   const [showUrl, setShowUrl] = useState(false);
-  const [imageError, setImageError] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
   const [attachOpen, setAttachOpen] = useState(false);
   const attach = useRef<HTMLDivElement>(null);
   const attachToggle = useRef<HTMLButtonElement>(null);
   const attachOptionsId = useId();
   const textarea = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
+  const documentPicker = useRef<HTMLInputElement>(null);
 
   // The options close on a click anywhere else, or on Escape
   useEffect(() => {
@@ -284,8 +337,15 @@ function Composer({
   function pickImage(file: File | undefined) {
     if (!file) return;
     const problem = imageProblem(file);
-    setImageError(problem);
+    setFileError(problem);
     if (!problem) onSendImage(file);
+  }
+
+  function pickDocument(file: File | undefined) {
+    if (!file) return;
+    const problem = documentProblem(file);
+    setFileError(problem);
+    if (!problem) onSendDocument(file);
   }
 
   const trimmedUrl = url.trim();
@@ -332,9 +392,9 @@ function Composer({
           {urlInvalid && <p className="mt-1 text-xs text-danger">Enter a full http or https link</p>}
         </div>
       )}
-      {imageError && (
+      {fileError && (
         <p role="alert" className="mb-2 text-xs text-danger">
-          {imageError}
+          {fileError}
         </p>
       )}
       <div className="flex items-end gap-2">
@@ -347,6 +407,16 @@ function Composer({
           onChange={(event) => {
             pickImage(event.target.files?.[0]);
             // Lets the same file be picked again
+            event.target.value = "";
+          }}
+        />
+        <input
+          ref={documentPicker}
+          type="file"
+          aria-label="Document to send"
+          className="hidden"
+          onChange={(event) => {
+            pickDocument(event.target.files?.[0]);
             event.target.value = "";
           }}
         />
@@ -383,6 +453,17 @@ function Composer({
                 className="block w-full px-3 py-2 text-left text-sm hover:bg-subtle disabled:opacity-50 disabled:hover:bg-transparent"
               >
                 Photo
+              </button>
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => {
+                  setAttachOpen(false);
+                  documentPicker.current?.click();
+                }}
+                className="block w-full px-3 py-2 text-left text-sm hover:bg-subtle disabled:opacity-50 disabled:hover:bg-transparent"
+              >
+                Document
               </button>
               <button
                 type="button"
